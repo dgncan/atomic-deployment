@@ -44,7 +44,32 @@ class Deploy:
     def run(self):
         remoteCommandPrefix = self.remoteCommandPrefix
 
-        print ('Step 1: Generate buildNo')
+        print ('Step 1: Remove dist directory')
+        result = self.run_command("rm -rf dist")
+        print (' OK')
+
+        print ('Step 2: Make dist directory')
+        result = self.run_command("mkdir -p dist")
+        print (' OK')
+        
+        print ('Step 3: Copying dirs in dist directory')
+        result = self.run_command("cp -r "+self.FILE_LIST+" dist/")
+        for item in self.FILE_LIST.split(" "):
+            # result = self.run_command("md5 "+item+"")
+            print (' OK')
+        print (' OK')
+
+        print ('Step 3: Copying settings-local.ini from env directory')
+        result = self.run_command("cp -r env/"+self.env+".ini conf/settings-local.ini")
+        print (' OK')
+
+        print ('Step 3: Copying settings-local.ini from env directory')
+        result = self.run_command("cp -r env/"+self.env+".ini dist/conf/settings-local.ini")
+        print (' OK')
+        exit(1)
+
+
+        print ('Step 4: Generate buildNo')
         # önce kontrol etmek lazım varmı böyle .dep/releases dosya diye.
         remoteCommand = "tail -1 "+self.DEPLOY_PATH+"/.dep/releases"
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -55,19 +80,7 @@ class Deploy:
         self.buildNo = str(buildNo)
         print (' OK')
 
-        print ('Step 2: Remove dist directory')
-        result = self.run_command("rm -rf dist")
-        print (' OK')
-
-        print ('Step 3: Make dist directory')
-        result = self.run_command("mkdir -p dist")
-        print (' OK')
-
-        print ('Step 3: Copying dirs in dist directory')
-        result = self.run_command("cp -r "+self.FILE_LIST+" dist/")
-        print (' OK')
-
-        print ('Step 4: Save Release Time and Build to .dep/releases')
+        print ('Step 5: Save Release Time and Build to .dep/releases')
         remoteCommand = "'echo \""+self.releaseTime+","+self.buildNo+"\" >> "+self.DEPLOY_PATH+"/.dep/releases'"
         print (remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -75,7 +88,7 @@ class Deploy:
         print (result)
         print (' OK')
 
-        print ('Step 5: Check release buildNo')
+        print ('Step 6: Check release buildNo')
         remoteCommand = "test -e "+self.DEPLOY_PATH+"/releases/"+self.buildNo+" && echo 1 || echo 0"
         result = self.run_command(remoteCommandPrefix + remoteCommand)
         isExistBuild = result[0].split('\n')[0]
@@ -90,7 +103,7 @@ class Deploy:
         print (' OK')
 
         if isExistBuild == '0':
-            print ('Step 6: Make build dir and set owner')
+            print ('Step 7: Make build dir and set owner')
             remoteCommand = " mkdir "+self.DEPLOY_PATH+"/releases/"+self.buildNo
             print (remoteCommandPrefix, remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -99,24 +112,24 @@ class Deploy:
             result = self.run_command(remoteCommandPrefix + remoteCommand)
             print (' OK')
         if isExistReleaseSymlink == '0':
-            print ('Step 7: create symlink release')
+            print ('Step 8: create symlink release')
             remoteCommand = "ln -s releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/release"
             result = self.run_command(remoteCommandPrefix + remoteCommand)
             print (' OK')
 
-        print ('Step 7: Copy files')
+        print ('Step 8: Copy files')
         command = "rsync -rvlz -e 'ssh -i "+self.PEM_FILE+"' ./dist/*  "+self.HOST+":"+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"
         result = self.run_command(command)
         print (result)
         print (' OK')
 
-        print ('Step 8: set chown for release')
+        print ('Step 9: set chown for release')
         remoteCommand = "chown -R icerik.www "+self.DEPLOY_PATH+"/releases/"+self.buildNo
         result = self.run_command(remoteCommandPrefix + remoteCommand)            
         print (result)
         print (' OK')
 
-        print ('Step 9: current link override, check current link, unlink release')
+        print ('Step 10: current link override, check current link, unlink release')
         remoteCommand = "ln -sfT releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
         result = self.run_command(remoteCommandPrefix + remoteCommand)
 
@@ -128,7 +141,7 @@ class Deploy:
             exit(1)
         print (' OK')
 
-        print ('Step 10: Make shared dir in project root if not exist')
+        print ('Step 11: Make shared dir in project root if not exist')
         remoteCommand = "test -e "+self.DEPLOY_PATH+"/shared && echo 1 || echo 0"
         result = self.run_command(remoteCommandPrefix + remoteCommand)
         isExistSharedDir = result[0].split('\n')[0]
@@ -138,9 +151,9 @@ class Deploy:
             result = self.run_command(remoteCommandPrefix + remoteCommand)
         print (' OK')
 
-        print ('Step 11: linked shared directory')
+        print ('Step 12: linked shared directory')
         for sharedDir in self.SHARED_DIRS.split(" "):
-            print ('Step 11.1: Make shared sub dir if not exist')
+            print ('Step 12.1: Make shared sub dir if not exist')
             remoteCommand = "test -e "+self.DEPLOY_PATH+"/shared/"+sharedDir+" && echo 1 || echo 0"
             result = self.run_command(remoteCommandPrefix + remoteCommand)
             isExistSharedSubDir = result[0].split('\n')[0]
@@ -150,7 +163,7 @@ class Deploy:
                 result = self.run_command(remoteCommandPrefix + remoteCommand)
             print (' OK')
 
-            print ('Step 11.2: linked')
+            print ('Step 12.2: linked')
             remoteCommand = "ln -sfT ../../shared/"+sharedDir+" "+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"+sharedDir
             print (remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)

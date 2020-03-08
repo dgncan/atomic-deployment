@@ -6,29 +6,56 @@ import subprocess
 import time
 import datetime
 import ConfigParser
+import shutil
+
+class Cwrite:
+    GREY = '\033[90m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m' 
+
+    @staticmethod
+    def info(msg):
+        print (Cwrite.GREY + msg + Cwrite.ENDC)
+    @staticmethod
+    def warning(msg):
+        print (Cwrite.YELLOW + msg + Cwrite.ENDC)
+    @staticmethod
+    def error(msg):
+        print (Cwrite.RED + msg + Cwrite.ENDC)
+    @staticmethod
+    def success(msg):
+        print (Cwrite.GREEN + msg + Cwrite.ENDC)
 
 class Deploy:
 
     def __init__(self, env):
         self.env = env
-        config = ConfigParser.ConfigParser()
-        config.read('env/'+self.env+'.ini')
+        try:
+            config = ConfigParser.ConfigParser()
+            config.read('env/'+self.env+'.ini')
+            config.get('deploy', 'PROJECT_NAME')
 
-        self.releaseTime = self.get_date(time.time())
+            self.releaseTime = self.get_date(time.time())
 
-        self.PROJECT_NAME = config.get('deploy', 'PROJECT_NAME')
-        self.HOST = config.get('deploy', 'HOST')
-        self.PEM_FILE = config.get('deploy', 'PEM_FILE')
+            self.PROJECT_NAME = config.get('deploy', 'PROJECT_NAME')
+            self.HOST = config.get('deploy', 'HOST')
+            self.PEM_FILE = config.get('deploy', 'PEM_FILE')
 
-        self.FILE_OWNER = config.get('deploy', 'FILE_OWNER')
-        self.DEPLOY_ROOT_PATH = config.get('deploy', 'DEPLOY_ROOT_PATH')
+            self.FILE_OWNER = config.get('deploy', 'FILE_OWNER')
+            self.DEPLOY_ROOT_PATH = config.get('deploy', 'DEPLOY_ROOT_PATH')
 
-        self.FILE_LIST = config.get('deploy', 'FILE_LIST')
+            self.FILE_LIST = config.get('deploy', 'FILE_LIST')
 
-        self.DEPLOY_PATH = self.DEPLOY_ROOT_PATH+"/"+self.PROJECT_NAME
-        self.SHARED_DIRS = config.get('deploy', 'SHARED_DIRS')
+            self.DEPLOY_PATH = self.DEPLOY_ROOT_PATH+"/"+self.PROJECT_NAME
+            self.SHARED_DIRS = config.get('deploy', 'SHARED_DIRS')
 
-        self.remoteCommandPrefix = "ssh -i "+self.PEM_FILE+" "+self.HOST+" "
+            self.remoteCommandPrefix = "ssh -i "+self.PEM_FILE+" "+self.HOST+" "
+        except :
+            Cwrite().error('Error:' + str(sys.exc_info()[1]))
 
     def get_date(self, unixtime, format = '%Y%m%d%H%M%S'):
         d = datetime.datetime.fromtimestamp(unixtime)
@@ -37,204 +64,258 @@ class Deploy:
     def run_command(self, cmd):
         output,error = subprocess.Popen(cmd, shell=True, executable="/bin/sh", stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
         if error:
-            print ("Error:"+error)
+            Cwrite().error('Error:' + error)
             exit(1)
         return output
 
     def run(self):
+        cw = Cwrite()
         remoteCommandPrefix = self.remoteCommandPrefix
 
-        print ('Step 1: Remove dist directory')
-        result = self.run_command("rm -rf dist")
-        print (' OK')
+        cw.warning('Step 1: Check atomic build path')
+        remoteCommand = '[ -f "'+self.DEPLOY_PATH+'/.dep/releases" ] && echo 1 || echo 0'
+        result = self.run_command(remoteCommandPrefix + remoteCommand)
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
+        isExistReleases = bool(int(result.split('\n')[0]))
+        cw.info(' isExistReleases:'+str(isExistReleases))
 
-        print ('Step 2: Make dist directory')
-        result = self.run_command("mkdir -p dist")
-        print (' OK')
+        cw.warning('Step 2: Create .dep dir and releases file')
+        if isExistReleases == False:
+            remoteCommand = '"cd '+self.DEPLOY_PATH+' && mkdir .dep && cd .dep && touch releases"'
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            cw.success(' OK')
+        else:
+            cw.success(' PASS')   
+
+        cw.warning('Step 3: Remove and Create dist directory')
+        if os.path.isdir("dist"):
+            shutil.rmtree("dist")
+        os.mkdir("dist")
+        cw.success(' OK')
         
-        print ('Step 3: Copying dirs in dist directory')
-        result = self.run_command("cp -r "+self.FILE_LIST+" dist/")
-        for item in self.FILE_LIST.split(" "):
-            # result = self.run_command("md5 "+item+"")
-            print (' OK')
-        print (' OK')
+        cw.warning('Step 4: Copying dirs in dist directory')
+        for directory in self.FILE_LIST.split(" "):
+            if os.path.isdir(directory):
+                result = self.run_command("cp -r "+directory+" dist/")
+            cw.info(' Directory: '+directory+' OK')
+        cw.success(' OK')
 
-        print ('Step 3: Copying settings-local.ini from env directory')
-        result = self.run_command("cp -r env/"+self.env+".ini conf/settings-local.ini")
-        print (' OK')
+        cw.warning('Step 5: Copying settings-local.ini from env directory')
+        os.mkdir("dist/conf")
+        shutil.copyfile("env/"+self.env+".ini", "dist/conf/settings-local.ini")
+        cw.success(' OK')
 
-        print ('Step 3: Copying settings-local.ini from env directory')
-        result = self.run_command("cp -r env/"+self.env+".ini dist/conf/settings-local.ini")
-        print (' OK')
-        exit(1)
+        buildNo = 0 
 
-
-        print ('Step 4: Generate buildNo')
-        # önce kontrol etmek lazım varmı böyle .dep/releases dosya diye.
-        remoteCommand = "tail -1 "+self.DEPLOY_PATH+"/.dep/releases"
+        cw.warning('Step 6: Check last active release symlink')
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/release" ] && echo 1 || echo 0'
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        lastBuildTime, lastBuildNo = result.split(",")
-        print ('lastBuildTime:'+lastBuildTime)
-        lastBuildNo = int(lastBuildNo)
-        buildNo = lastBuildNo+1
+        isExistReleaseSymlink = bool(int(result.split('\n')[0]))
+        cw.info(' isExistReleaseSymlink:'+str(isExistReleaseSymlink))
+        if isExistReleaseSymlink:
+            remoteCommand = "readlink "+self.DEPLOY_PATH+"/release"
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            path = result.split('\n')[0].split("/")
+            buildNo = int(path[len(path)-1])
+            cw.info(" Active Release :"+str(buildNo))
+            cw.success(' OK')
+        else:
+            cw.success(' PASS')
+
+
+        cw.warning('Step 7: Last buildNo and Time by .dep/releases')
+        if buildNo == 0:
+            remoteCommand = "tail -1 "+self.DEPLOY_PATH+"/.dep/releases"
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            if len(result) != 0:
+                lastBuildTime, lastBuildNo = result.split(",")
+                lastBuildNo = int(lastBuildNo)
+                cw.info(' Last build No:'+str(lastBuildNo)+' - Date Time:'+lastBuildTime)
+                buildNo = lastBuildNo+1
+                cw.success(' OK')
+            else:
+                buildNo = 1
+                cw.success(' OK')
+        else:
+            cw.success(' PASS')
+    
         self.buildNo = str(buildNo)
-        print (' OK')
 
-        print ('Step 5: Save Release Time and Build to .dep/releases')
+        cw.info(' New build No:'+self.buildNo+' - Date Time:'+self.releaseTime)
+        cw.success(' OK')
+
+        cw.warning('Step 8: Check release buildNo')
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/releases/'+self.buildNo+'" ] && echo 1 || echo 0'
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
+        result = self.run_command(remoteCommandPrefix + remoteCommand)
+        isExistBuild = bool(int(result.split('\n')[0]))
+
+        cw.info(' isExistReleaseSymlink:'+str(isExistReleaseSymlink))
+        cw.info(' isExistBuild:'+str(isExistBuild))
+
+        cw.warning('Step 9: Save Release Time and Build to .dep/releases')
         remoteCommand = "'echo \""+self.releaseTime+","+self.buildNo+"\" >> "+self.DEPLOY_PATH+"/.dep/releases'"
-        print (remoteCommandPrefix + remoteCommand)
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        # output,error = subprocess.Popen(remoteCommandPrefix+remoteCommand, shell=True, executable="/bin/bash", stdout=subprocess.PIPE, stderr=subprocess.PIPE).communicate()
-        print (result)
-        print (' OK')
+        cw.info(' '+result)
+        cw.success(' OK')
 
-        print ('Step 6: Check release buildNo')
-        remoteCommand = "test -e "+self.DEPLOY_PATH+"/releases/"+self.buildNo+" && echo 1 || echo 0"
-        result = self.run_command(remoteCommandPrefix + remoteCommand)
-        isExistBuild = result[0].split('\n')[0]
-        print (' remote command:'+remoteCommand+' result:'+isExistBuild)
 
-        remoteCommand = "test -e "+self.DEPLOY_PATH+"/release && echo 1 || echo 0"
-        result = self.run_command(remoteCommandPrefix + remoteCommand)
-
-        isExistReleaseSymlink = result[0].split('\n')[0]
-        print (' remote command:'+remoteCommand+' result:'+isExistReleaseSymlink)
-        print("  isExistBuild:", isExistBuild, "isExistReleaseSymlink:",isExistReleaseSymlink)
-        print (' OK')
-
-        if isExistBuild == '0':
-            print ('Step 7: Make build dir and set owner')
-            remoteCommand = " mkdir "+self.DEPLOY_PATH+"/releases/"+self.buildNo
-            print (remoteCommandPrefix, remoteCommand)
+        cw.warning('Step 10: Make build dir and shared dir and set owner')
+        if isExistBuild == False:
+            remoteCommand = " mkdir -p "+self.DEPLOY_PATH+"/releases/"+self.buildNo
+            cw.info(' '+remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
 
             remoteCommand = "chown -R "+self.FILE_OWNER+" "+self.DEPLOY_PATH+"/releases/"+self.buildNo
+            cw.info(' '+remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-            print (' OK')
-        if isExistReleaseSymlink == '0':
-            print ('Step 8: create symlink release')
+            cw.success(' OK')
+        else:
+            cw.info(' the build dir is exist.')
+            cw.success(' PASS')
+
+        cw.warning('Step 11: create symlink release')
+        if isExistReleaseSymlink == False:
             remoteCommand = "ln -s releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/release"
+            cw.info(' '+remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-            print (' OK')
+            cw.success(' OK')
+        else:
+            cw.info(' the build dir symlink is exist.')
+            cw.success(' PASS')
 
-        print ('Step 8: Copy files')
+
+        cw.warning('Step 12: Copy files')
         command = "rsync -rvlz -e 'ssh -i "+self.PEM_FILE+"' ./dist/*  "+self.HOST+":"+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"
+        cw.info(' '+command)
         result = self.run_command(command)
-        print (result)
-        print (' OK')
+        cw.info(' '+result)
+        cw.success(' OK')
 
-        print ('Step 9: set chown for release')
+        cw.warning('Step 13: set chown for release')
         remoteCommand = "chown -R icerik.www "+self.DEPLOY_PATH+"/releases/"+self.buildNo
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)            
-        print (result)
-        print (' OK')
+        cw.info(' '+result)
+        cw.success(' OK')
 
-        print ('Step 10: current link override, check current link, unlink release')
+        cw.warning('Step 14: current link override, check current link, unlink release')
         remoteCommand = "ln -sfT releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
 
-        remoteCommand = "test -e "+self.DEPLOY_PATH+"/current && echo 1 || echo 0"
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/current" ] && echo 1 || echo 0'
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        isCreateNewCurrent = result[0].split('\n')[0]
-        if isCreateNewCurrent == '0':
-            print ('new current link problem, !!!')
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
+        isCreateNewCurrent = bool(int(result.split('\n')[0]))
+        cw.info(' isCreateNewCurrent:' + str(isCreateNewCurrent))
+        if isCreateNewCurrent == False:
+            cw.error(' New current link problem!')
             exit(1)
-        print (' OK')
+        cw.success(' OK')
 
-        print ('Step 11: Make shared dir in project root if not exist')
-        remoteCommand = "test -e "+self.DEPLOY_PATH+"/shared && echo 1 || echo 0"
+        cw.warning('Step 15: Make shared dir in project root if not exist')
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/shared" ] && echo 1 || echo 0'
+        cw.info(' ' + remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        isExistSharedDir = result[0].split('\n')[0]
+        isExistSharedDir = bool(int(result.split('\n')[0]))
+        cw.info(' isExistSharedDir:' + str(isExistSharedDir))
         if isExistSharedDir == 0:
             remoteCommand = " mkdir "+self.DEPLOY_PATH+"/shared"
-            print (remoteCommandPrefix, remoteCommand)
+            cw.info(' ' + remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-        print (' OK')
+            cw.success(' OK')
+        else:
+            cw.success(' PASS')
 
-        print ('Step 12: linked shared directory')
+        cw.warning('Step 16: linked shared directory, make shared sub dir if not exist')
         for sharedDir in self.SHARED_DIRS.split(" "):
-            print ('Step 12.1: Make shared sub dir if not exist')
-            remoteCommand = "test -e "+self.DEPLOY_PATH+"/shared/"+sharedDir+" && echo 1 || echo 0"
+            remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/shared/'+sharedDir+'" ] && echo 1 || echo 0'
+            cw.info(' ' + remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-            isExistSharedSubDir = result[0].split('\n')[0]
-            if isExistSharedSubDir == 0:
+            isExistSharedSubDir = bool(int(result.split('\n')[0]))
+            cw.info(' isExistSharedSubDir:' + str(isExistSharedSubDir))
+            if isExistSharedSubDir == False:
                 remoteCommand = " mkdir "+self.DEPLOY_PATH+"/shared/"+sharedDir
-                print (remoteCommandPrefix, remoteCommand)
+                cw.info(' ' + remoteCommandPrefix + remoteCommand)
                 result = self.run_command(remoteCommandPrefix + remoteCommand)
-            print (' OK')
+                cw.success(' OK')
 
-            print ('Step 12.2: linked')
             remoteCommand = "ln -sfT ../../shared/"+sharedDir+" "+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"+sharedDir
-            print (remoteCommand)
+            cw.info(' ' + remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-            print (' OK')
+            cw.success(' OK')
 
         remoteCommand = "unlink "+self.DEPLOY_PATH+"/release"
+        cw.info(' ' + remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        print
+        cw.success(' OK')
+        cw.success(' FINISH')
         exit(1)
 
     def rollback(self, buildNo):
+        cw = Cwrite()
         remoteCommandPrefix = self.remoteCommandPrefix
 
-        print ('Hedeflenen Build No:'+buildNo)
+        cw.warning('Hedeflenen Build No:'+buildNo)
         remoteCommand = "ln -sfT releases/"+buildNo+" "+self.DEPLOY_PATH+"/current"
+        cw.info(' ' + remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        remoteCommand = "test -e "+self.DEPLOY_PATH+"/current && echo 1 || echo 0"
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/current" ] && echo 1 || echo 0'
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        isCreateNewCurrent = result[0].split('\n')[0]
-        if isCreateNewCurrent == '0':
-            print ('yeni current symlink olusamamıs, !!!')
+        isCreateNewCurrent = bool(int(result.split('\n')[0]))
+        if isCreateNewCurrent == False:
+            cw.error (' New current symlink can not created!')
             exit(1)
         remoteCommand = "unlink "+self.DEPLOY_PATH+"/release"
         result = self.run_command(remoteCommandPrefix + remoteCommand)
-        print
+
+        cw.success(' FINISH')
         exit(1)
 
     def test(self):
         print (sys.argv)
         print ('test.......')
-        
-if __name__ == '__main__':
-    print ('Deploy.py v.0.1 \n'
-            'Doğan Can <dgncan@gmail.com> \n'
+
+def intro():
+    cw = Cwrite()
+    cw.success('Deploy.py v.0.1 \n'
+            ' Doğan Can <dgncan@gmail.com> \n'
             '\n'
-            'Atomic Deployment Tool\n'
-            '\n'
-            'Usage:\n'
-            '   python deploy.php [env] [command] [buildno]\n'
+            ' Atomic Deployment Tool\n'
+            '====================================\n'
+            ) 
+def help():
+    cw = Cwrite()
+    cw.info('Usage:\n'
+            '   python deploy.php [command] [env] [buildno]\n'
             '\n'
             'Available commands:\n'
             '   dep         deploying th project\n'
             '   rollback    rollbacking the specific version of project \n'
             '\n'
             'Example: \n'
-            '   python deploy.py test dep 123 \n'
-            '   python deploy.py test rollback 11 \n'
+            '   python deploy.py dep test\n'
+            '   python deploy.py rollback test 92 \n'
             )
-
+if __name__ == '__main__':
+    intro()
     if len(sys.argv) <=2:
-        print ('Please input environment and subcommand!\n')
+        help()
+        Cwrite().warning('Please input environment and subcommand!\n')
         exit(1)
     
     if len(sys.argv) >2:
-        deploy = Deploy(sys.argv[1])
-        if sys.argv[2]=='dep':
+        deploy = Deploy(sys.argv[2])
+        if sys.argv[1]=='dep':
             deploy.run()
-        if sys.argv[2]=='rollback':
+        if sys.argv[1]=='rollback':
             if len(sys.argv) <=3:
                 print ('Please input build arguments!\n')
                 exit(1)
             deploy.rollback(sys.argv[3])
-        if sys.argv[2]=='test':
+        if sys.argv[1]=='test':
             deploy.test()
 
     exit(1)
-
-    print
-    print ('Release Time:', deploy.releaseTime)
-    print ('Release No:', deploy.buildNo)
-    print ('Pem File:', deploy.PEM_FILE)
-    print ('Deploy Path:', deploy.DEPLOY_PATH)
-    print
-   

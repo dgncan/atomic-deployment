@@ -73,6 +73,9 @@ class Deploy:
         cw = Cwrite()
         remoteCommandPrefix = self.remoteCommandPrefix
 
+        lastBuildNo = 0
+        buildNo = 0 
+
         cw.warning('Step 1: Check atomic build path')
         remoteCommand = '[ -f "'+self.DEPLOY_PATH+'/.dep/releases" ] && echo 1 || echo 0'
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -84,35 +87,46 @@ class Deploy:
         if isExistReleases == False:
             remoteCommand = '"cd '+self.DEPLOY_PATH+' && mkdir .dep && cd .dep && touch releases"'
             result = self.run_command(remoteCommandPrefix + remoteCommand)
+            buildNo = 1
+            cw.info(' buildNo:' + buildNo)
             cw.success(' OK')
         else:
             cw.success(' PASS')   
 
-        cw.warning('Step 3: Remove and Create dist directory')
+        cw.warning('Step 3: get last build no')
+        if isExistReleases:
+            remoteCommand = "tail -1 "+self.DEPLOY_PATH+"/.dep/releases"
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            if len(result) != 0:
+                lastBuildTime, lastBuildNo = result.split(",")
+                lastBuildNo = int(lastBuildNo)
+                cw.info(' Last build No:'+str(lastBuildNo)+' - Date Time:'+lastBuildTime)
+                buildNo = lastBuildNo+1
+                cw.info(' buildNo:' + buildNo)
+                cw.success(' OK')
+        else:
+            cw.success(' PASS')
+
+        cw.warning('Step 4: Remove and Create dist directory')
         if os.path.isdir("dist"):
             shutil.rmtree("dist")
         os.mkdir("dist")
         cw.success(' OK')
 
-
-
-
-        cw.warning('Step 4: Copying dirs/files in dist directory')
+        cw.warning('Step 5: Copying dirs/files in dist directory')
         for item in self.FILE_LIST.split(" "):
             if os.path.isdir(item) or os.path.isfile(item):
                 result = self.run_command("cp -r "+item+" dist/")
             cw.info(' Item: '+item+' OK')
         cw.success(' OK')
 
-        cw.warning('Step 5: Copying settings-local.ini from env directory')
+        cw.warning('Step 6: Copying settings-local.ini from env directory')
         if os.path.isdir("dist/conf") == False:
             os.mkdir("dist/conf")
         shutil.copyfile("env/"+self.env+".ini", "dist/conf/settings-local.ini")
         cw.success(' OK')
 
-        buildNo = 0 
-
-        cw.warning('Step 6: Check last active release symlink')
+        cw.warning('Step 7: Check last active release symlink')
         remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/release" ] && echo 1 || echo 0'
         result = self.run_command(remoteCommandPrefix + remoteCommand)
         isExistReleaseSymlink = bool(int(result.split('\n')[0]))
@@ -127,23 +141,6 @@ class Deploy:
         else:
             cw.success(' PASS')
 
-
-        cw.warning('Step 7: Last buildNo and Time by .dep/releases')
-        if buildNo == 0:
-            remoteCommand = "tail -1 "+self.DEPLOY_PATH+"/.dep/releases"
-            result = self.run_command(remoteCommandPrefix + remoteCommand)
-            if len(result) != 0:
-                lastBuildTime, lastBuildNo = result.split(",")
-                lastBuildNo = int(lastBuildNo)
-                cw.info(' Last build No:'+str(lastBuildNo)+' - Date Time:'+lastBuildTime)
-                buildNo = lastBuildNo+1
-                cw.success(' OK')
-            else:
-                buildNo = 1
-                cw.success(' OK')
-        else:
-            cw.success(' PASS')
-    
         self.buildNo = str(buildNo)
 
         cw.info(' New build No:'+self.buildNo+' - Date Time:'+self.releaseTime)
@@ -159,22 +156,27 @@ class Deploy:
         cw.info(' isExistBuild:'+str(isExistBuild))
 
         cw.warning('Step 9: Checksum for composer.lock')
-        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock" ] && echo 1 || echo 0'
-        cw.info(' '+remoteCommandPrefix + remoteCommand)
-        result = self.run_command(remoteCommandPrefix + remoteCommand)
-        isExistLockFile = bool(int(result.split('\n')[0]))
-        cw.info(' isExistLockFile:'+str(isExistLockFile))
-        isSameVendorDir = False
-        if isExistLockFile:
-            remoteCommand = 'md5sum '+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock'
-            cw.info(' ' + remoteCommandPrefix + remoteCommand)
+        if lastBuildNo > 0:
+            remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock" ] && echo 1 || echo 0'
+            cw.info(' '+remoteCommandPrefix + remoteCommand)
             result = self.run_command(remoteCommandPrefix + remoteCommand)
-            cw.info(' ' + result)
-            oldMd5CheckSum = result.split(' ')[0]
-            newMd5Checksum = md5('composer.lock')
-            isSameVendorDir = oldMd5CheckSum == newMd5Checksum
-            cw.info(' isSameVendorDir'+str(isSameVendorDir))
+            isExistLockFile = bool(int(result.split('\n')[0]))
+            cw.info(' isExistLockFile:'+str(isExistLockFile))
+            isSameVendorDir = False
+            if isExistLockFile:
+                remoteCommand = 'md5sum '+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock'
+                cw.info(' ' + remoteCommandPrefix + remoteCommand)
+                result = self.run_command(remoteCommandPrefix + remoteCommand)
+                cw.info(' ' + result)
+                oldMd5CheckSum = result.split(' ')[0]
+                newMd5Checksum = md5('composer.lock')
+                isSameVendorDir = oldMd5CheckSum == newMd5Checksum
+                cw.info(' isSameVendorDir'+str(isSameVendorDir))
+            else:
+                cw.info(' No composer.lock in Last build')
+                cw.success(' PASS')
         else:
+            cw.info(' No Last build')
             cw.success(' PASS')
 
         cw.warning('Step 10: Save Release Time and Build to .dep/releases')
@@ -183,7 +185,6 @@ class Deploy:
         result = self.run_command(remoteCommandPrefix + remoteCommand)
         cw.info(' '+result)
         cw.success(' OK')
-
 
         cw.warning('Step 11: Make build dir and shared dir and set owner')
         if isExistBuild == False:

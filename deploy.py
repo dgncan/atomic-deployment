@@ -7,6 +7,7 @@ import time
 import datetime
 import ConfigParser
 import shutil
+import hashlib
 
 class Cwrite:
     GREY = '\033[90m'
@@ -92,16 +93,20 @@ class Deploy:
             shutil.rmtree("dist")
         os.mkdir("dist")
         cw.success(' OK')
-        
-        cw.warning('Step 4: Copying dirs in dist directory')
-        for directory in self.FILE_LIST.split(" "):
-            if os.path.isdir(directory):
-                result = self.run_command("cp -r "+directory+" dist/")
-            cw.info(' Directory: '+directory+' OK')
+
+
+
+
+        cw.warning('Step 4: Copying dirs/files in dist directory')
+        for item in self.FILE_LIST.split(" "):
+            if os.path.isdir(item) or os.path.isfile(item):
+                result = self.run_command("cp -r "+item+" dist/")
+            cw.info(' Item: '+item+' OK')
         cw.success(' OK')
 
         cw.warning('Step 5: Copying settings-local.ini from env directory')
-        os.mkdir("dist/conf")
+        if os.path.isdir("dist/conf") == False:
+            os.mkdir("dist/conf")
         shutil.copyfile("env/"+self.env+".ini", "dist/conf/settings-local.ini")
         cw.success(' OK')
 
@@ -153,7 +158,26 @@ class Deploy:
         cw.info(' isExistReleaseSymlink:'+str(isExistReleaseSymlink))
         cw.info(' isExistBuild:'+str(isExistBuild))
 
-        cw.warning('Step 9: Save Release Time and Build to .dep/releases')
+        cw.warning('Step 9: Checksum for composer.lock')
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock" ] && echo 1 || echo 0'
+        cw.info(' '+remoteCommandPrefix + remoteCommand)
+        result = self.run_command(remoteCommandPrefix + remoteCommand)
+        isExistLockFile = bool(int(result.split('\n')[0]))
+        cw.info(' isExistLockFile:'+str(isExistLockFile))
+        isSameVendorDir = False
+        if isExistLockFile:
+            remoteCommand = 'md5sum '+self.DEPLOY_PATH+'/releases/'+str(lastBuildNo)+'/composer.lock'
+            cw.info(' ' + remoteCommandPrefix + remoteCommand)
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            cw.info(' ' + result)
+            oldMd5CheckSum = result.split(' ')[0]
+            newMd5Checksum = md5('composer.lock')
+            isSameVendorDir = oldMd5CheckSum == newMd5Checksum
+            cw.info(' isSameVendorDir'+str(isSameVendorDir))
+        else:
+            cw.success(' PASS')
+
+        cw.warning('Step 10: Save Release Time and Build to .dep/releases')
         remoteCommand = "'echo \""+self.releaseTime+","+self.buildNo+"\" >> "+self.DEPLOY_PATH+"/.dep/releases'"
         cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -161,7 +185,7 @@ class Deploy:
         cw.success(' OK')
 
 
-        cw.warning('Step 10: Make build dir and shared dir and set owner')
+        cw.warning('Step 11: Make build dir and shared dir and set owner')
         if isExistBuild == False:
             remoteCommand = " mkdir -p "+self.DEPLOY_PATH+"/releases/"+self.buildNo
             cw.info(' '+remoteCommandPrefix + remoteCommand)
@@ -175,7 +199,7 @@ class Deploy:
             cw.info(' the build dir is exist.')
             cw.success(' PASS')
 
-        cw.warning('Step 11: create symlink release')
+        cw.warning('Step 12: create symlink release')
         if isExistReleaseSymlink == False:
             remoteCommand = "ln -s releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/release"
             cw.info(' '+remoteCommandPrefix + remoteCommand)
@@ -185,22 +209,35 @@ class Deploy:
             cw.info(' the build dir symlink is exist.')
             cw.success(' PASS')
 
+        cw.warning('Step 13: Copy vendor dir from old build')
+        excludeStr = ''
+        if isSameVendorDir:
+            excludeStr = "--exclude 'vendor'"
+            cw.info(' excludeStr:'+excludeStr)
+            
+            remoteCommand = "cp -r "+self.DEPLOY_PATH+"/releases/"+str(lastBuildNo)+"/vendor "+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"
+            cw.info(' '+remoteCommandPrefix + remoteCommand)
+            result = self.run_command(remoteCommandPrefix + remoteCommand)            
+            cw.info(' '+result)
+            cw.success(' OK')
+        else:
+            cw.success(' PASS')
 
-        cw.warning('Step 12: Copy files')
-        command = "rsync -rvlz -e 'ssh -i "+self.PEM_FILE+"' ./dist/*  "+self.HOST+":"+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"
+        cw.warning('Step 14: Copy files')
+        command = "rsync -rvlz "+excludeStr+" -e 'ssh -i "+self.PEM_FILE+"' ./dist/*  "+self.HOST+":"+self.DEPLOY_PATH+"/releases/"+self.buildNo+"/"
         cw.info(' '+command)
         result = self.run_command(command)
         cw.info(' '+result)
         cw.success(' OK')
 
-        cw.warning('Step 13: set chown for release')
+        cw.warning('Step 15: set chown for release')
         remoteCommand = "chown -R icerik.www "+self.DEPLOY_PATH+"/releases/"+self.buildNo
         cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)            
         cw.info(' '+result)
         cw.success(' OK')
 
-        cw.warning('Step 14: current link override, check current link, unlink release')
+        cw.warning('Step 16: current link override, check current link, unlink release')
         remoteCommand = "ln -sfT releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
         cw.info(' '+remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -215,7 +252,7 @@ class Deploy:
             exit(1)
         cw.success(' OK')
 
-        cw.warning('Step 15: Make shared dir in project root if not exist')
+        cw.warning('Step 17: Make shared dir in project root if not exist')
         remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/shared" ] && echo 1 || echo 0'
         cw.info(' ' + remoteCommandPrefix + remoteCommand)
         result = self.run_command(remoteCommandPrefix + remoteCommand)
@@ -229,7 +266,7 @@ class Deploy:
         else:
             cw.success(' PASS')
 
-        cw.warning('Step 16: linked shared directory, make shared sub dir if not exist')
+        cw.warning('Step 18: linked shared directory, make shared sub dir if not exist')
         for sharedDir in self.SHARED_DIRS.split(" "):
             remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/shared/'+sharedDir+'" ] && echo 1 || echo 0'
             cw.info(' ' + remoteCommandPrefix + remoteCommand)
@@ -299,6 +336,14 @@ def help():
             '   python deploy.py dep test\n'
             '   python deploy.py rollback test 92 \n'
             )
+
+def md5(fname):
+    hash_md5 = hashlib.md5()
+    with open(fname, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
 if __name__ == '__main__':
     intro()
     if len(sys.argv) <=2:

@@ -1,0 +1,19 @@
+{
+    "name": "dgncan/example-project",
+    "description": "Example Project",
+    "type": "project",
+    "authors": [
+        {
+            "name": "Doğan Can",
+            "email": "dgncan@gmail.com"
+        }
+    ],
+    "autoload": {
+        "classmap": [
+            "src/"
+        ]
+    },
+    "require": {
+        "slim/slim": "^4.0"
+    }
+}

@@ -88,7 +88,7 @@ class Deploy:
             remoteCommand = '"cd '+self.DEPLOY_PATH+' && mkdir .dep && cd .dep && touch releases"'
             result = self.run_command(remoteCommandPrefix + remoteCommand)
             buildNo = 1
-            cw.info(' buildNo:' + buildNo)
+            cw.info(' buildNo:' + str(buildNo))
             cw.success(' OK')
         else:
             cw.success(' PASS')   
@@ -102,7 +102,7 @@ class Deploy:
                 lastBuildNo = int(lastBuildNo)
                 cw.info(' Last build No:'+str(lastBuildNo)+' - Date Time:'+lastBuildTime)
                 buildNo = lastBuildNo+1
-                cw.info(' buildNo:' + buildNo)
+                cw.info(' buildNo:' + str(buildNo))
                 cw.success(' OK')
         else:
             cw.success(' PASS')
@@ -113,11 +113,16 @@ class Deploy:
         os.mkdir("dist")
         cw.success(' OK')
 
+        # making optimization vendor directory if there is a composer lock file.
+        isComposerLockFile = False
+
         cw.warning('Step 5: Copying dirs/files in dist directory')
         for item in self.FILE_LIST.split(" "):
             if os.path.isdir(item) or os.path.isfile(item):
                 result = self.run_command("cp -r "+item+" dist/")
             cw.info(' Item: '+item+' OK')
+            if item == 'composer.lock':
+                isComposerLockFile = True
         cw.success(' OK')
 
         cw.warning('Step 6: Copying settings-local.ini from env directory')
@@ -137,6 +142,11 @@ class Deploy:
             path = result.split('\n')[0].split("/")
             buildNo = int(path[len(path)-1])
             cw.info(" Active Release :"+str(buildNo))
+            remoteCommand = "readlink "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(remoteCommandPrefix + remoteCommand)
+            path = result.split('\n')[0].split("/")
+            lastBuildNo = int(path[len(path)-1])
+            cw.info(" Old Build No :"+str(lastBuildNo))
             cw.success(' OK')
         else:
             cw.success(' PASS')
@@ -290,7 +300,7 @@ class Deploy:
         result = self.run_command(remoteCommandPrefix + remoteCommand)
         cw.success(' OK')
         cw.success(' FINISH')
-        exit(1)
+        exit(0)
 
     def rollback(self, buildNo):
         cw = Cwrite()
@@ -310,7 +320,7 @@ class Deploy:
         result = self.run_command(remoteCommandPrefix + remoteCommand)
 
         cw.success(' FINISH')
-        exit(1)
+        exit(0)
 
     def test(self):
         print (sys.argv)
@@ -318,12 +328,9 @@ class Deploy:
 
 def intro():
     cw = Cwrite()
-    cw.success('Deploy.py v.0.1 \n'
-            ' Doğan Can <dgncan@gmail.com> \n'
-            '\n'
-            ' Atomic Deployment Tool\n'
-            '====================================\n'
-            ) 
+    cw.success('Deploy.py v.0.1')
+    cw.info(cw.BOLD+' Atomic Deployment Tool Doğan Can <dgncan@gmail.com>')
+    cw.info('____________________________________________________')
 def help():
     cw = Cwrite()
     cw.info('Usage:\n'

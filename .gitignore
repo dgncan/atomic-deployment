@@ -1,4 +1,7 @@
 .DS_Store
 .vscode/
-dist/
+example-project/dist/
+example-project/vendor/
 example-project/deploy.py
+test_server_root/example-project/*
+!test_server_root/example-project/.gitkeep

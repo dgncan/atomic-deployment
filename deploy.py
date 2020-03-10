@@ -25,7 +25,7 @@ class Cwrite:
 
     @staticmethod
     def header(msg):
-        print ('\n'+ Cwrite.YELLOW + msg + Cwrite.ENDC)
+        print (Cwrite.YELLOW + msg + Cwrite.ENDC)
     @staticmethod
     def info(msg):
         print (Cwrite.WHITE + msg + Cwrite.ENDC)
@@ -132,6 +132,7 @@ class Deploy:
             path = result.split('\n')[0].split("/")
             lastBuildNo = int(path[len(path)-1])
             isExistCurrentSymlink = True
+            buildNo = lastBuildNo+1
             cw.info(" Old Build No :"+str(lastBuildNo))
             cw.success(' OK')
         else:
@@ -282,7 +283,10 @@ class Deploy:
 
         cw.header('Step 16: current link override, check current link, unlink release')
         if isExistCurrentSymlink:
-            remoteCommand = "unlink "+self.DEPLOY_PATH+"/current && ln -sf releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
+            remoteCommand = "unlink "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(self.wrap_command(remoteCommand))
+            remoteCommand = "ln -sf releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(self.wrap_command(remoteCommand))
         else:
             remoteCommand = "ln -sf releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
         result = self.run_command(self.wrap_command(remoteCommand))

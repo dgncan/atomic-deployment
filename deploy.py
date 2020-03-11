@@ -289,7 +289,7 @@ class Deploy:
             result = self.run_command(self.wrap_command(remoteCommand))
         else:
             remoteCommand = "ln -sf releases/"+self.buildNo+" "+self.DEPLOY_PATH+"/current"
-        result = self.run_command(self.wrap_command(remoteCommand))
+            result = self.run_command(self.wrap_command(remoteCommand))
 
         remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/current" ] && echo 1 || echo 0'
         result = self.run_command(self.wrap_command(remoteCommand))
@@ -342,9 +342,32 @@ class Deploy:
         cw = Cwrite()
         remoteCommandPrefix = self.remoteCommandPrefix
 
-        cw.warning('Target Build No:'+buildNo)
-        remoteCommand = "ln -sfT releases/"+buildNo+" "+self.DEPLOY_PATH+"/current"
+        lastBuildNo = 0
+
+        cw.header('Step 1: Get current symlink')
+        isExistCurrentSymlink = False
+        remoteCommand = "readlink "+self.DEPLOY_PATH+"/current"
         result = self.run_command(self.wrap_command(remoteCommand))
+        if result !='':
+            path = result.split('\n')[0].split("/")
+            lastBuildNo = int(path[len(path)-1])
+            isExistCurrentSymlink = True
+
+        cw.info('Target Build No:'+buildNo+' Old Build No :'+str(lastBuildNo))
+
+        if int(lastBuildNo) == int(buildNo):
+            cw.error(" Old build no and target build no is same")
+            exit(1)
+
+        cw.header('Step 2: Change current symlink')
+        if isExistCurrentSymlink:
+            remoteCommand = "unlink "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(self.wrap_command(remoteCommand))
+            remoteCommand = "ln -sf releases/"+buildNo+" "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(self.wrap_command(remoteCommand))
+        else:
+            remoteCommand = "ln -sf releases/"+buildNo+" "+self.DEPLOY_PATH+"/current"
+            result = self.run_command(self.wrap_command(remoteCommand))
 
         remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/current" ] && echo 1 || echo 0'
         result = self.run_command(self.wrap_command(remoteCommand))
@@ -353,8 +376,12 @@ class Deploy:
             cw.error (' New current symlink can not created!')
             exit(1)
 
-        remoteCommand = "unlink "+self.DEPLOY_PATH+"/release"
+        remoteCommand = '[ -e "'+self.DEPLOY_PATH+'/release" ] && echo 1 || echo 0'
         result = self.run_command(self.wrap_command(remoteCommand))
+        isExistReleaseSymlink = bool(int(result.split('\n')[0]))
+        if isExistReleaseSymlink:
+            remoteCommand = "unlink "+self.DEPLOY_PATH+"/release"
+            result = self.run_command(self.wrap_command(remoteCommand))
 
         cw.success(' FINISH')
         exit(0)
